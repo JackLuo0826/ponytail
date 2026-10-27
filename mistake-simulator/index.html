@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mistake Simulator</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  button { display: block; width: 100%; margin: .5rem 0; padding: .75rem; font: inherit; text-align: left; cursor: pointer; }
+  .lesson { border-left: 4px solid #d33; padding: .5rem 1rem; background: #d331; }
+</style>
+</head>
+<body>
+<h1>Mistake Simulator</h1>
+<p>Make the mistakes here, so you don't make them for real. Every bad call shows what it would have cost you.</p>
+<main id="app" aria-live="polite"></main>
+
+<script>
+// Each scenario is a tiny graph: node -> choices -> next node.
+// A choice with `lesson` is a mistake; the lesson is shown immediately and in the debrief.
+// ponytail: scenarios are hardcoded here; move to a JSON file only if non-devs need to author them.
+const scenarios = {
+  "Production deploy on Friday": {
+    start: {
+      text: "It's 4:55pm Friday. Your PR is approved. Ship it now?",
+      choices: [
+        { label: "Deploy now, it's a small change", next: "broken", lesson: "Late deploys leave nobody around to catch the fallout. Small changes still break things." },
+        { label: "Wait for Monday morning", next: "monday" },
+      ],
+    },
+    broken: {
+      text: "At 9pm, error rates spike. You're at dinner. What now?",
+      choices: [
+        { label: "Hotfix forward from your phone", next: "worse", lesson: "Untested fixes under pressure stack a second bug on the first." },
+        { label: "Roll back to the last good version", next: "end" },
+      ],
+    },
+    worse: {
+      text: "The hotfix broke login too. Customers are emailing support.",
+      choices: [{ label: "Roll back and write a postmortem", next: "end" }],
+    },
+    monday: {
+      text: "Monday: you deploy with the team watching dashboards. A small bug appears.",
+      choices: [{ label: "Roll back, fix, redeploy", next: "end" }],
+    },
+    end: { text: "Scenario over." },
+  },
+  "Phishing email": {
+    start: {
+      text: "An email from \"IT Support\" says your password expires today. There's a link.",
+      choices: [
+        { label: "Click the link and log in", next: "phished", lesson: "Urgency + a link is the classic phishing pattern. Go to the site directly instead." },
+        { label: "Check the sender address", next: "sender" },
+      ],
+    },
+    sender: {
+      text: "The sender is it-support@paypa1-helpdesk.com.",
+      choices: [
+        { label: "Reply asking if it's real", next: "replied", lesson: "Replying confirms your address is active. Report it through your real IT channel." },
+        { label: "Report it to your security team", next: "end" },
+      ],
+    },
+    replied: {
+      text: "They reply instantly with an even more convincing link.",
+      choices: [{ label: "Stop and report it", next: "end" }],
+    },
+    phished: {
+      text: "Your account starts sending spam to coworkers.",
+      choices: [{ label: "Change password, enable 2FA, tell IT", next: "end" }],
+    },
+    end: { text: "Scenario over." },
+  },
+  "Job interview": {
+    start: {
+      text: "The interviewer asks: \"Why are you leaving your current job?\"",
+      choices: [
+        { label: "Complain about your boss", next: "frown", lesson: "Badmouthing a past employer makes them wonder what you'll say about them." },
+        { label: "Talk about what you want to grow into", next: "salary" },
+      ],
+    },
+    frown: {
+      text: "The interviewer's smile fades. \"What salary are you looking for?\"",
+      choices: [
+        { label: "Name a number way below market", next: "end", lesson: "Research the range first. The first number anchors the whole negotiation." },
+        { label: "Give a researched range", next: "end" },
+      ],
+    },
+    salary: {
+      text: "They nod. \"What salary are you looking for?\"",
+      choices: [
+        { label: "Name a number way below market", next: "end", lesson: "Research the range first. The first number anchors the whole negotiation." },
+        { label: "Give a researched range", next: "end" },
+      ],
+    },
+    end: { text: "Scenario over." },
+  },
+};
+
+// Self-check: every choice points at a node that exists, every scenario has start/end.
+for (const [name, s] of Object.entries(scenarios)) {
+  console.assert(s.start && s.end, `${name}: missing start or end`);
+  for (const [id, node] of Object.entries(s))
+    for (const c of node.choices ?? [])
+      console.assert(c.next in s, `${name}/${id}: dead link to "${c.next}"`);
+}
+
+const app = document.getElementById("app");
+const el = (tag, text, cls) => Object.assign(document.createElement(tag), { textContent: text, className: cls ?? "" });
+const button = (label, onclick) => Object.assign(el("button", label), { onclick });
+
+function menu() {
+  app.replaceChildren(el("h2", "Pick a scenario"), ...Object.keys(scenarios).map(n => button(n, () => play(n))));
+}
+
+function play(name, id = "start", mistakes = [], lastLesson) {
+  const node = scenarios[name][id];
+  app.replaceChildren(el("h2", name));
+  if (lastLesson) app.append(el("p", "Mistake: " + lastLesson, "lesson"));
+  app.append(el("p", node.text));
+  if (node.choices) {
+    for (const c of node.choices)
+      app.append(button(c.label, () => play(name, c.next, c.lesson ? [...mistakes, c.lesson] : mistakes, c.lesson)));
+    app.querySelector("button").focus();
+    return;
+  }
+  app.append(el("h3", `Debrief: ${mistakes.length} mistake${mistakes.length === 1 ? "" : "s"}`));
+  const list = el("ul");
+  list.append(...(mistakes.length ? mistakes.map(m => el("li", m)) : [el("li", "Clean run. Try the wrong answers too, that's the point.")]));
+  app.append(list, button("Replay", () => play(name)), button("Other scenarios", menu));
+}
+
+menu();
+</script>
+</body>
+</html>
